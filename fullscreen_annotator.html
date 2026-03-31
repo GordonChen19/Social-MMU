@@ -247,6 +247,20 @@
         cursor: wait;
       }
 
+      .local-upload-button {
+        border-color: rgba(165, 227, 255, 0.42);
+        background: linear-gradient(180deg, rgba(41, 124, 168, 0.92), rgba(17, 76, 108, 0.94));
+        color: #eef8ff;
+        border-radius: 999px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .local-upload-button:hover {
+        background: linear-gradient(180deg, rgba(56, 145, 192, 0.96), rgba(24, 90, 126, 0.96));
+      }
+
       .note-rail {
         position: absolute;
         top: 16px;
@@ -559,6 +573,67 @@
         margin-top: 8px;
         display: grid;
         gap: 6px;
+      }
+
+      .note-analysis-section,
+      .note-analysis-distractors {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        background: rgba(8, 12, 18, 0.22);
+        overflow: hidden;
+      }
+
+      .note-analysis-summary,
+      .note-analysis-distractors summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px;
+        cursor: pointer;
+        list-style: none;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: rgba(242, 246, 251, 0.9);
+      }
+
+      .note-analysis-summary::-webkit-details-marker,
+      .note-analysis-distractors summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .note-analysis-summary::marker,
+      .note-analysis-distractors summary::marker {
+        content: "";
+      }
+
+      .note-analysis-summary::after,
+      .note-analysis-distractors summary::after {
+        content: "+";
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .note-analysis-section[open] > .note-analysis-summary::after,
+      .note-analysis-distractors[open] > summary::after {
+        content: "-";
+      }
+
+      .note-analysis-body,
+      .note-analysis-distractors-body {
+        display: grid;
+        gap: 8px;
+        padding: 0 10px 10px;
+      }
+
+      .note-analysis-distractors {
+        margin-top: 2px;
+        background: rgba(10, 16, 24, 0.32);
+      }
+
+      .note-analysis-distractors-body textarea {
+        min-height: 88px;
       }
 
       .note-analysis-fields label {
@@ -1293,6 +1368,19 @@
             aria-label="Import from YouTube"
             title="Import from YouTube"
           >↑</button>
+          <button
+            class="youtube-import-button local-upload-button"
+            id="local-upload-trigger"
+            type="button"
+            aria-label="Upload local MP4"
+            title="Upload local MP4"
+          >⤴</button>
+          <input
+            class="hidden-input"
+            id="local-upload-input"
+            type="file"
+            accept="video/mp4,.mp4"
+          >
         </div>
         <button class="btn ghost shared-toggle-button" id="shared-toggle" type="button" aria-expanded="false">
           <span>Video Library</span>
@@ -1530,6 +1618,8 @@
       const sharedToggleArrow = document.getElementById("shared-toggle-arrow");
       const youtubeLinkInput = document.getElementById("youtube-link");
       const youtubeImportButton = document.getElementById("youtube-import");
+      const localUploadTriggerButton = document.getElementById("local-upload-trigger");
+      const localUploadInput = document.getElementById("local-upload-input");
       const sharedRefreshButton = document.getElementById("shared-refresh");
       const sharedPublishButton = document.getElementById("shared-publish");
       const sharedCloseButton = document.getElementById("shared-close");
@@ -2098,6 +2188,41 @@
         return "";
       }
 
+      function normalizeDistractorList(rawValue) {
+        const source = Array.isArray(rawValue)
+          ? rawValue
+          : (typeof rawValue === "string" ? rawValue.split(/\r?\n/) : []);
+        const normalized = [];
+        const seen = new Set();
+        source.forEach((item) => {
+          const text = String(item || "").trim();
+          if (!text) {
+            return;
+          }
+          const key = text.toLowerCase();
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          normalized.push(text);
+        });
+        return normalized;
+      }
+
+      function firstNonEmptyDistractorList(...values) {
+        for (let index = 0; index < values.length; index += 1) {
+          const normalized = normalizeDistractorList(values[index]);
+          if (normalized.length) {
+            return normalized;
+          }
+        }
+        return [];
+      }
+
+      function distractorListToText(value) {
+        return normalizeDistractorList(value).join("\n");
+      }
+
       function deriveGenericCharacterValue(raw) {
         const direct = normalizeCharacterName(
           firstNonEmptyText(
@@ -2306,6 +2431,15 @@
         if (String(note.prediction || "").trim()) {
           exported.prediction = String(note.prediction || "");
         }
+        if (Array.isArray(note.comprehensionDistractors) && note.comprehensionDistractors.length) {
+          exported.comprehensionDistractors = normalizeDistractorList(note.comprehensionDistractors);
+        }
+        if (Array.isArray(note.reasoningDistractors) && note.reasoningDistractors.length) {
+          exported.reasoningDistractors = normalizeDistractorList(note.reasoningDistractors);
+        }
+        if (Array.isArray(note.predictionDistractors) && note.predictionDistractors.length) {
+          exported.predictionDistractors = normalizeDistractorList(note.predictionDistractors);
+        }
         return exported;
       }
 
@@ -2365,10 +2499,8 @@
         }
         try {
           const snapshot = {
-            version: 1,
+            version: 2,
             savedAt: new Date().toISOString(),
-            annotation: buildExportPayload(),
-            sessionNotes: getEditableNotes().map((note) => noteToExport(note)),
             ui: {
               notesHidden: notesHidden,
             },
@@ -2381,6 +2513,17 @@
 
       function renderJsonPreview() {
         persistSession();
+      }
+
+      function clearEditableWorkspace() {
+        state.notes = [];
+        state.nextId = 1;
+        state.characters = [];
+        currentSharedEntryId = null;
+        currentWorkspaceVideoRef = null;
+        currentWorkspaceAnnotator = "";
+        renderCharactersPanel();
+        renderNotes();
       }
 
       function highlightActiveNotes(currentTime) {
@@ -2436,10 +2579,64 @@
           note.reasoning = String(value || "");
         } else if (field === "prediction") {
           note.prediction = String(value || "");
+        } else if (field === "comprehensionDistractors") {
+          note.comprehensionDistractors = normalizeDistractorList(value);
+        } else if (field === "reasoningDistractors") {
+          note.reasoningDistractors = normalizeDistractorList(value);
+        } else if (field === "predictionDistractors") {
+          note.predictionDistractors = normalizeDistractorList(value);
         } else {
           return;
         }
         renderJsonPreview();
+      }
+
+      function createAnalysisSection(note, item) {
+        const section = document.createElement("details");
+        section.className = "note-analysis-section";
+        section.open = true;
+
+        const summary = document.createElement("summary");
+        summary.className = "note-analysis-summary";
+        summary.textContent = item.label;
+
+        const body = document.createElement("div");
+        body.className = "note-analysis-body";
+
+        const fieldInput = document.createElement("textarea");
+        fieldInput.id = item.field + "-" + note.id;
+        fieldInput.placeholder = item.placeholder;
+        fieldInput.value = String(note[item.field] || "");
+        fieldInput.setAttribute("aria-label", item.label);
+        fieldInput.addEventListener("input", () => {
+          updateNoteAnalysisField(note.id, item.field, fieldInput.value);
+        });
+        body.append(fieldInput);
+
+        const distractorSection = document.createElement("details");
+        distractorSection.className = "note-analysis-distractors";
+        distractorSection.open = Array.isArray(note[item.distractorField]) && note[item.distractorField].length > 0;
+
+        const distractorSummary = document.createElement("summary");
+        distractorSummary.textContent = "Distractors";
+
+        const distractorBody = document.createElement("div");
+        distractorBody.className = "note-analysis-distractors-body";
+
+        const distractorInput = document.createElement("textarea");
+        distractorInput.id = item.field + "-distractors-" + note.id;
+        distractorInput.placeholder = item.distractorPlaceholder;
+        distractorInput.value = distractorListToText(note[item.distractorField]);
+        distractorInput.setAttribute("aria-label", item.label + " distractors");
+        distractorInput.addEventListener("input", () => {
+          updateNoteAnalysisField(note.id, item.distractorField, distractorInput.value);
+        });
+
+        distractorBody.append(distractorInput);
+        distractorSection.append(distractorSummary, distractorBody);
+        body.append(distractorSection);
+        section.append(summary, body);
+        return section;
       }
 
       function buildIntentObservation(note) {
@@ -3148,31 +3345,25 @@
               field: "comprehension",
               label: "Comprehension",
               placeholder: "Summarize what is happening in this moment...",
+              distractorField: "comprehensionDistractors",
+              distractorPlaceholder: "Add wrong comprehension answers, one per line...",
             },
             {
               field: "reasoning",
               label: "Reasoning",
               placeholder: "Explain why you interpret the moment this way...",
+              distractorField: "reasoningDistractors",
+              distractorPlaceholder: "Add wrong reasoning answers, one per line...",
             },
             {
               field: "prediction",
               label: "Prediction",
               placeholder: "Describe what you expect to happen next...",
+              distractorField: "predictionDistractors",
+              distractorPlaceholder: "Add wrong prediction answers, one per line...",
             },
           ].forEach((item) => {
-            const fieldLabel = document.createElement("label");
-            fieldLabel.setAttribute("for", item.field + "-" + note.id);
-            fieldLabel.textContent = item.label;
-
-            const fieldInput = document.createElement("textarea");
-            fieldInput.id = item.field + "-" + note.id;
-            fieldInput.placeholder = item.placeholder;
-            fieldInput.value = String(note[item.field] || "");
-            fieldInput.addEventListener("input", () => {
-              updateNoteAnalysisField(note.id, item.field, fieldInput.value);
-            });
-
-            analysisFields.append(fieldLabel, fieldInput);
+            analysisFields.append(createAnalysisSection(note, item));
           });
 
           card.append(analysisFields);
@@ -3275,6 +3466,9 @@
           comprehension: "",
           reasoning: "",
           prediction: "",
+          comprehensionDistractors: [],
+          reasoningDistractors: [],
+          predictionDistractors: [],
           perceptionCues: isPerceptionCategory(categoryKey) ? [{ type: "visual", text: "" }] : [],
           emotionCharacter: isEmotionCategory(categoryKey) ? "" : "",
           emotionDescription: isEmotionCategory(categoryKey) ? "" : "",
@@ -3421,6 +3615,10 @@
           objectVideoUrl = null;
         }
 
+        if (options.resetWorkspace) {
+          clearEditableWorkspace();
+        }
+
         currentVideoFile = options.currentVideoFile || null;
         currentServerVideoRef = Number.isInteger(options.videoRef) ? options.videoRef : null;
         currentSharedEntryId = Number.isInteger(options.entryId) ? options.entryId : null;
@@ -3461,6 +3659,7 @@
           title: titleFromPath(rawPath),
           filePath: rawPath,
           remoteUrl: isPersistableVideoUrl(src) ? src : "",
+          resetWorkspace: Boolean(options.resetWorkspace),
           sourceInfo: options.sourceInfo,
           statusMessage: "Attempting to load movie from filepath: " + rawPath,
         });
@@ -3482,6 +3681,7 @@
           remoteUrl: sourceUrl,
           videoRef: Number.isInteger(options.videoRef) ? options.videoRef : null,
           entryId: Number.isInteger(options.entryId) ? options.entryId : null,
+          resetWorkspace: Boolean(options.resetWorkspace),
           sourceInfo: options.sourceInfo,
           statusMessage: options.statusMessage || ("Loading shared video: " + titleFromPath(options.filePath || sourceUrl)),
         });
@@ -3500,8 +3700,18 @@
           title: file.name,
           filePath: file.name,
           currentVideoFile: file,
+          resetWorkspace: true,
         });
         updateStatus("Loaded " + file.name + ".");
+      }
+
+      function isMp4File(file) {
+        if (!file) {
+          return false;
+        }
+        const fileName = String(file.name || "").trim().toLowerCase();
+        const fileType = String(file.type || "").trim().toLowerCase();
+        return fileType === "video/mp4" || fileName.endsWith(".mp4");
       }
 
       function parseAnnotationWorkspaceData(payload, options = {}) {
@@ -3604,6 +3814,24 @@
                 raw.violationReasoning
               ),
               prediction: String(raw.prediction || raw.notePrediction || ""),
+              comprehensionDistractors: firstNonEmptyDistractorList(
+                raw.comprehensionDistractors,
+                raw.noteComprehensionDistractors,
+                raw.comprehensionWrongAnswers,
+                raw.distractors && raw.distractors.comprehension
+              ),
+              reasoningDistractors: firstNonEmptyDistractorList(
+                raw.reasoningDistractors,
+                raw.noteReasoningDistractors,
+                raw.reasoningWrongAnswers,
+                raw.distractors && raw.distractors.reasoning
+              ),
+              predictionDistractors: firstNonEmptyDistractorList(
+                raw.predictionDistractors,
+                raw.notePredictionDistractors,
+                raw.predictionWrongAnswers,
+                raw.distractors && raw.distractors.prediction
+              ),
               perceptionCues: isPerceptionCategory(categoryKey)
                 ? normalizePerceptionCues(raw.perceptionCues, observation)
                 : [],
@@ -3839,32 +4067,9 @@
           return false;
         }
 
-        const annotation = parsed.annotation && typeof parsed.annotation === "object"
-          ? parsed.annotation
-          : parsed;
-        if (!annotation || typeof annotation !== "object") {
-          return false;
-        }
-
-        const sessionNotes = Array.isArray(parsed.sessionNotes) ? parsed.sessionNotes : null;
         const uiState = parsed.ui && typeof parsed.ui === "object" ? parsed.ui : null;
         notesHidden = Boolean(uiState && uiState.notesHidden);
-        const hydratePayload = { ...annotation };
-        if (sessionNotes && !Array.isArray(hydratePayload.notes)) {
-          hydratePayload.notes = sessionNotes;
-        }
-
-        suspendPersistence = true;
-        try {
-          hydrateFromJson(hydratePayload, { quietStatus: true });
-        } finally {
-          suspendPersistence = false;
-        }
-
-        renderJsonPreview();
-        updatePlaybackUi();
-        updateStatus("Restored previous session with notes and video filepath.");
-        return true;
+        return false;
       }
 
       function formatSharedTimestamp(value) {
@@ -4598,10 +4803,12 @@
                 title: displayName,
                 filePath: filePath || displayName || videoUrl,
                 videoRef: videoRef,
+                resetWorkspace: true,
                 sourceInfo: sourceInfo,
               })
             : (filePath ? loadVideoFromPath(filePath, {
                 quiet: true,
+                resetWorkspace: true,
                 sourceInfo: sourceInfo,
               }) : false);
 
@@ -4739,6 +4946,27 @@
 
       youtubeImportButton.addEventListener("click", () => {
         importFromYoutube();
+      });
+
+      localUploadTriggerButton.addEventListener("click", () => {
+        localUploadInput.value = "";
+        localUploadInput.click();
+      });
+
+      localUploadInput.addEventListener("change", () => {
+        const file = localUploadInput.files && localUploadInput.files[0]
+          ? localUploadInput.files[0]
+          : null;
+        if (!file) {
+          return;
+        }
+        if (!isMp4File(file)) {
+          updateStatus("Select an MP4 file to load a local video.");
+          localUploadInput.value = "";
+          return;
+        }
+        setVideoFromFile(file);
+        localUploadInput.value = "";
       });
 
       youtubeLinkInput.addEventListener("keydown", (event) => {
