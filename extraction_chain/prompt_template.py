@@ -24,7 +24,7 @@ You are tasked with analyzing a video.
 
 INPUTS YOU WILL RECEIVE:
 1) A VIDEO for analysis
-2) A QUESTION about the social dynamics in the video at that moment.
+2) A QUESTION about about the very end of the video.
 
 You are to answer the question to the best of your abilities. 
 

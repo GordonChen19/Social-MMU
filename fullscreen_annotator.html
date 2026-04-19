@@ -496,6 +496,21 @@
         letter-spacing: 0.5px;
       }
 
+      .note-category-select {
+        min-width: 180px;
+        max-width: 100%;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.38);
+        background: rgba(10, 16, 24, 0.5);
+        color: #f7f9fc;
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+      }
+
       .note-owner-row {
         margin-top: 8px;
         display: flex;
@@ -2182,6 +2197,21 @@
           "understanding_role_institutional_knowledge",
         ],
       };
+
+      const NOTE_CATEGORY_SELECT_KEYS = [
+        "perspective",
+        "understanding_knowledge_state",
+        "understanding_emotions",
+        "understanding_persona",
+        "understanding_situation_awareness",
+        "understanding_relationship",
+        "understanding_intent",
+        "understanding_communicative_intent",
+        "understanding_norms",
+        "understanding_cultural_conventions",
+        "understanding_moral_judgment",
+        "understanding_role_institutional_knowledge",
+      ];
 
       const ANALYTICS_SOCIAL_DIMENSIONS = [
         { key: "emotions", label: "Emotions", color: "#f57d8a", categories: ["understanding_emotions", "emotion"] },
@@ -4882,6 +4912,39 @@
         return select;
       }
 
+      function createCategorySelect(noteId, currentCategory, onChange) {
+        const select = document.createElement("select");
+        select.id = "note-category-" + noteId;
+        select.className = "note-category-select";
+
+        const optionKeys = NOTE_CATEGORY_SELECT_KEYS.slice();
+        const normalizedCurrent = normalizeCategory(currentCategory);
+        if (
+          normalizedCurrent
+          && CATEGORY_CONFIG[normalizedCurrent]
+          && !optionKeys.includes(normalizedCurrent)
+        ) {
+          optionKeys.push(normalizedCurrent);
+        }
+
+        optionKeys.forEach((categoryKey) => {
+          const category = CATEGORY_CONFIG[categoryKey];
+          if (!category) {
+            return;
+          }
+          const option = document.createElement("option");
+          option.value = categoryKey;
+          option.textContent = category.label;
+          select.appendChild(option);
+        });
+
+        select.value = normalizedCurrent;
+        select.addEventListener("change", () => {
+          onChange(select.value);
+        });
+        return select;
+      }
+
       function renderCharactersPanel() {
         characterList.innerHTML = "";
         if (!state.characters.length) {
@@ -5175,6 +5238,44 @@
         }
         applyAutoQuestionTemplates(note);
         syncAutoQuestionInputs(note);
+        renderJsonPreview();
+      }
+
+      function updateNoteCategory(noteId, value) {
+        const note = getEditableNote(noteId);
+        if (!note) {
+          return;
+        }
+        const nextCategoryKey = normalizeCategory(value);
+        const nextCategory = CATEGORY_CONFIG[nextCategoryKey];
+        if (!nextCategory || note.category === nextCategoryKey) {
+          return;
+        }
+
+        const wasRelationship = isRelationshipCategory(note.category);
+        const willBeRelationship = isRelationshipCategory(nextCategoryKey);
+
+        if (!wasRelationship && willBeRelationship) {
+          const pair = deriveRelationshipCharacterPair(note);
+          if (!note.relationshipCharacterA && pair.characterA) {
+            note.relationshipCharacterA = pair.characterA;
+          }
+          if (!note.relationshipCharacterB && pair.characterB) {
+            note.relationshipCharacterB = pair.characterB;
+          }
+        } else if (wasRelationship && !willBeRelationship) {
+          const fallbackCharacter = normalizeCharacterName(note.character)
+            || normalizeCharacterName(note.relationshipCharacterA)
+            || normalizeCharacterName(note.relationshipCharacterB);
+          note.character = fallbackCharacter || "";
+        }
+
+        note.category = nextCategoryKey;
+        note.label = nextCategory.label;
+        note.color = nextCategory.color;
+        note.rgb = nextCategory.rgb;
+        applyAutoQuestionTemplates(note);
+        renderNotes();
         renderJsonPreview();
       }
 
@@ -6154,9 +6255,16 @@
           const top = document.createElement("div");
           top.className = "note-top";
 
-          const label = document.createElement("div");
-          label.className = "note-label";
-          label.textContent = note.label;
+          let label = null;
+          if (editable) {
+            label = createCategorySelect(note.id, note.category, (selectedCategory) => {
+              updateNoteCategory(note.id, selectedCategory);
+            });
+          } else {
+            label = document.createElement("div");
+            label.className = "note-label";
+            label.textContent = note.label;
+          }
 
           const timeButton = document.createElement("button");
           timeButton.type = "button";
